@@ -1,0 +1,12 @@
+[submodule "src/simulators/NASA_ULI_Xplane_Simulator"]
+	path = src/simulators/NASA_ULI_Xplane_Simulator
+	url = git@github.com:nrober1122/NASA_ULI_Xplane_Simulator.git
+[submodule "src/third_party/jax_verify"]
+	path = src/third_party/jax_verify
+	url = git@github.com:nrober1122/jax_verify.git
+[submodule "src/third_party/hj_reachability"]
+	path = src/third_party/hj_reachability
+	url = git@github.com:nrober1122/hj_reachability.git
+[submodule "src/third_party/auto_LiRPA"]
+	path = src/third_party/auto_LiRPA
+	url = git@github.com:Verified-Intelligence/auto_LiRPA.git
