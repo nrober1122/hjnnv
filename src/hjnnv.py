@@ -42,30 +42,36 @@ class hjnnvUncertaintyAwareFilter:
         target_time = -10.0
         target_values = hj.step(solver_settings, dynamics, grid, final_time, values, target_time)
 
-        d1 = jnp.linspace(
-            dynamics.disturbance_space.lo[0],
-            dynamics.disturbance_space.hi[0],
-            num_disturbances,
-        )
-        d2 = jnp.linspace(
-            dynamics.disturbance_space.lo[1],
-            dynamics.disturbance_space.hi[1],
-            num_disturbances,
-        )
-
         self.dynamics = dynamics
         self.pred_model = pred_model
         self.grid = grid
-        
+
         self.target_values = target_values
-        self.disturbance_vals = jnp.stack(
-            jnp.meshgrid(d1, d2, indexing="ij"), axis=-1
-        ).reshape(-1, 2)
-        self.control_vals = jnp.linspace(
-            dynamics.control_space.lo[0],
-            dynamics.control_space.hi[0],
-            num_controls,
+
+        self.disturbance_vals = self.make_grid(
+            dynamics.disturbance_space.lo,
+            dynamics.disturbance_space.hi,
+            num_disturbances
         )
+
+        self.control_vals = self.make_grid(
+            dynamics.control_space.lo,
+            dynamics.control_space.hi,
+            num_controls
+        )
+
+
+    def make_grid(self, lo, hi, num_points):
+        """
+        Make a uniform grid over a box [lo, hi] in arbitrary dimensions.
+        """
+        d = len(lo)
+        if isinstance(num_points, int):
+            num_points = [num_points] * d
+
+        axes = [jnp.linspace(lo[i], hi[i], num_points[i]) for i in range(d)]
+        mesh = jnp.meshgrid(*axes, indexing="ij")
+        return jnp.stack(mesh, axis=-1).reshape(-1, d)
 
     def state_bounds_from_gt(self, prediction, ground_truth):
         lo = jnp.min(jnp.vstack((prediction, ground_truth)), axis=0)
@@ -119,18 +125,24 @@ class hjnnvUncertaintyAwareFilter:
         """
 
         # Construct grids
-        x1 = jnp.linspace(state_bounds.lo[0], state_bounds.hi[0], num_states)
-        x2 = jnp.linspace(state_bounds.lo[1], state_bounds.hi[1], num_states)
-        states = jnp.stack(jnp.meshgrid(x1, x2, indexing="ij"), axis=-1).reshape(-1, 2)
+        axes = [jnp.linspace(lo, hi, num_states) for lo, hi in zip(state_bounds.lo, state_bounds.hi)]
+
+        # Create a full grid
+        mesh = jnp.meshgrid(*axes, indexing="ij")
+
+        # Stack and flatten into shape
+        states = jnp.stack(mesh, axis=-1).reshape(-1, len(axes))
 
         num_d = self.disturbance_vals.shape[0]
 
         def evaluate_u(u):
             # Compute f(x, u, d) for all x and d
+            u = jnp.atleast_1d(u)
+
             def eval_x_d(x):
                 def eval_d(d):
-                    next_state = self.dynamics.step(x, jnp.array([u]), d, 0.)
-                    # next_state = x + dxdt * self.dynamics.dt
+                    d = jnp.atleast_1d(d)
+                    next_state = self.dynamics.step(x, u, d, 0.)
                     val = self.grid.interpolate(self.target_values, next_state)
                     return val
                 return jax.vmap(eval_d)(self.disturbance_vals)
