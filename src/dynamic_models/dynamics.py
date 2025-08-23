@@ -1,8 +1,10 @@
 import abc
+import numpy as np
 import jax.numpy as jnp
 import jax
 
 import hj_reachability as hj
+import torch
 
 
 class HJNNVDynamics(hj.ControlAndDisturbanceAffineDynamics):
@@ -12,7 +14,7 @@ class HJNNVDynamics(hj.ControlAndDisturbanceAffineDynamics):
                  disturbance_mode="min",
                  control_space=None,
                  disturbance_space=None):
-
+        self.dt = dt
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     @abc.abstractmethod
@@ -46,11 +48,17 @@ class HJNNVDynamics(hj.ControlAndDisturbanceAffineDynamics):
                 "Only Box disturbance space is supported for random sampling."
             )
 
-    def simulate_trajectory(self, initial_state, control_policy, num_steps):
+    def simulate_trajectory(self, initial_state, control_policy, num_steps, use_observations=False):
         state = initial_state
         trajectory = [(state, self.get_observation(state, time=0))]
         for t in range(num_steps):
-            control = control_policy(state)
+            if use_observations:
+                obs = self.get_observation(state, time=t)
+                state_hat = self.get_state_estimate(obs)
+            else:
+                state_hat = state
+            # import ipdb; ipdb.set_trace()
+            control = control_policy(state_hat)
             disturbance = self.get_random_disturbance()
             state = self.step(state, control, disturbance, time=t+1)
             observation = self.get_observation(state, time=t+1)

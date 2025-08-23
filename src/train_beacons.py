@@ -20,10 +20,15 @@ import math
 import random
 from typing import Tuple
 
+import ipdb
 import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
+import os
+from datetime import datetime
+
+from learned_models.beacon.estimators.simple_estimator_gpt.estimator_mlp import MLP
 
 # -------------------------------
 # Config
@@ -33,15 +38,15 @@ class Config:
     seed: int = 123
     dt: float = 0.1
     T: int = 60                   # steps per trajectory
-    n_traj_train: int = 1500
-    n_traj_val: int = 200
-    n_traj_test: int = 200
+    n_traj_train: int = 10000
+    n_traj_val: int = 2000
+    n_traj_test: int = 2000
 
     # state init bounds
-    x_range: Tuple[float, float] = (-5.0, 5.0)
-    y_range: Tuple[float, float] = (-5.0, 5.0)
-    vx_range: Tuple[float, float] = (-1.0, 1.0)
-    vy_range: Tuple[float, float] = (-1.0, 1.0)
+    x_range: Tuple[float, float] = (-3.0, 12.0)
+    y_range: Tuple[float, float] = (-3.0, 12.0)
+    vx_range: Tuple[float, float] = (-3.0, 3.0)
+    vy_range: Tuple[float, float] = (-3.0, 3.0)
 
     # process & measurement noise
     sigma_process_pos: float = 0.01
@@ -49,15 +54,20 @@ class Config:
     sigma_range: float = 0.02     # range noise
 
     # beacon positions (non-collinear for observability)
-    beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (6.0, 0.0), (0.0, 6.0))
+    beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (4.0, 4.0))
 
     # training
     batch_size: int = 256
-    epochs: int = 25
+    epochs: int = 30
     lr: float = 1e-3
-    hidden: int = 128
+    hidden: int = 64
+
+    results_dir = "/home/nick/code/hjnnv/src/learned_models/" \
+        "beacon/estimators/simple_estimator_3t/scratch"
+
 
 cfg = Config()
+
 
 # -------------------------------
 # Utilities
@@ -102,7 +112,7 @@ def simulate_trajectory(cfg: Config):
     for t in range(T):
         pos = np.array([states[t,0], states[t,1]])
         d = np.linalg.norm(beacons - pos, axis=1)  # (3,)
-        d_noisy = d + np.random.randn(3) * cfg.sigma_range
+        d_noisy = d + np.random.randn(len(cfg.beacons)) * cfg.sigma_range
         ranges.append(d_noisy)
     ranges = np.stack(ranges, axis=0)  # (T,3)
 
@@ -116,8 +126,8 @@ class RangeHistoryDataset(Dataset):
         self.targets = []
         for _ in range(n_traj):
             s, r = simulate_trajectory(cfg)
-            for t in range(1, cfg.T):
-                inp = np.concatenate([r[t-1], r[t]], axis=0)  # (6,)
+            for t in range(2, cfg.T):
+                inp = np.concatenate([r[t-2], r[t-1], r[t]], axis=0)  # (12,)
                 tgt = s[t]  # (4,)
                 self.inputs.append(inp)
                 self.targets.append(tgt)
@@ -136,19 +146,6 @@ class RangeHistoryDataset(Dataset):
         return self.inputs[idx], self.targets[idx]
 
 
-class MLP(nn.Module):
-    def __init__(self, in_dim=6, out_dim=4, hidden=64):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden), nn.ReLU(),
-            nn.Linear(hidden, hidden), nn.ReLU(),
-            nn.Linear(hidden, hidden), nn.ReLU(),
-            nn.Linear(hidden, out_dim),
-        )
-    def forward(self, x):
-        return self.net(x)
-
-
 def make_loaders(cfg: Config):
     train_ds = RangeHistoryDataset(cfg, cfg.n_traj_train)
     val_ds = RangeHistoryDataset(cfg, cfg.n_traj_val)
@@ -165,7 +162,7 @@ def train(cfg: Config):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     train_loader, val_loader, test_loader, train_ds = make_loaders(cfg)
 
-    model = MLP(in_dim=6, out_dim=4, hidden=cfg.hidden).to(device)
+    model = MLP(in_dim=12, out_dim=4, hidden=cfg.hidden).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
     loss_fn = nn.MSELoss()
@@ -215,7 +212,31 @@ def train(cfg: Config):
     print(f"Position RMSE (L2 over x,y): {float(np.linalg.norm(test_rmse[:2])):.4f}")
     print(f"Velocity RMSE (L2 over vx,vy): {float(np.linalg.norm(test_rmse[2:])):.4f}")
 
+    def get_obs(state):
+        pos = np.array([state[0], state[1]])
+        d = np.linalg.norm(cfg.beacons - pos, axis=1)  # (3,)
+        d_noisy = d + np.random.randn(len(cfg.beacons)) * cfg.sigma_range
+        return d_noisy
     
+    # state0 = test_loader.dataset.targets[0]
+    # state1 = np.array([state0[0] + state0[2]*cfg.dt, state0[1] + state0[3]*cfg.dt, state0[2], state0[3]])
+    # obs0 = get_obs(state0)
+    # obs1 = get_obs(state1)
+    # obs = np.concatenate([obs0, obs1], axis=0, dtype='float32')
+    # state1_est = model(torch.tensor(obs).to(device)).detach().cpu().numpy()
+
+    # ipdb.set_trace()
+
+    os.makedirs(cfg.results_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = os.path.join(cfg.results_dir, f"mlp_{timestamp}.pt")
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'in_mean': train_ds.in_mean,
+        'in_std': train_ds.in_std,
+        'config': cfg,
+    }, model_path)
+    print(f"Saved model to {model_path}")
 
 
 if __name__ == "__main__":
