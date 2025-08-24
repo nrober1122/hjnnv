@@ -110,7 +110,7 @@ def simulate_trajectory(cfg: Config):
     beacons = np.array(cfg.beacons)  # (3,2)
     ranges = []
     for t in range(T):
-        pos = np.array([states[t,0], states[t,1]])
+        pos = np.array([states[t, 0], states[t, 1]])
         d = np.linalg.norm(beacons - pos, axis=1)  # (3,)
         d_noisy = d + np.random.randn(len(cfg.beacons)) * cfg.sigma_range
         ranges.append(d_noisy)
@@ -234,7 +234,7 @@ def train(cfg: Config):
         'model_state_dict': model.state_dict(),
         'in_mean': train_ds.in_mean,
         'in_std': train_ds.in_std,
-        'config': cfg,
+        'config_dict': cfg.__dict__,
     }, model_path)
     print(f"Saved model to {model_path}")
 

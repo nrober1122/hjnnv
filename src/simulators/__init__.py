@@ -1,0 +1,2 @@
+from .simulator import Simulator
+from simulators.beacon_env.beacon_simulator import BeaconSimulator

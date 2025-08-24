@@ -1,0 +1,16 @@
+system:
+  type: "beacon"  # options: beacon, x-plane
+  dt: 0.1
+
+hjnnv:
+  filtering: true
+  bounding_method: "crown" # Options: crown, gt
+
+experiment_setup:
+  num_steps: 100
+  expt_number: 1
+  show_plot: true
+  save: false
+
+
+

@@ -95,7 +95,7 @@ class BeaconDynamics(HJNNVDynamics):
 
         checkpoint = torch.load(
             "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/simple_estimator_3t/best_model.pt",
-            map_location="cpu"
+            map_location="cpu",
         )
 
         # load just the weights
@@ -105,7 +105,7 @@ class BeaconDynamics(HJNNVDynamics):
         # optional: keep normalization params if you need them later
         self.in_mean = checkpoint.get("in_mean", None)
         self.in_std = checkpoint.get("in_std", None)
-        self.config = checkpoint.get("config", None)
+        self.config = checkpoint.get("config_dict", None)
 
     def get_state_estimate(self, obs):
         obs = torch.tensor(np.array(obs)).unsqueeze(0)
