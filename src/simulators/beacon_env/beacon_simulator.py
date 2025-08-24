@@ -1,10 +1,13 @@
 import jax.numpy as jnp
+import jax
 import numpy as np
 
 import matplotlib.pyplot as plt
 
+import hj_reachability as hj
 from dynamic_models.beacon import BeaconDynamics
 from simulators import Simulator
+from hjnnv import hjnnvUncertaintyAwareFilter
 
 
 class BeaconSimulator(Simulator):
@@ -26,6 +29,41 @@ class BeaconSimulator(Simulator):
                 },
             }
         }
+
+        # grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
+        #     hj.sets.Box(
+        #         np.array([-18., -np.pi/4]),
+        #         np.array([18., np.pi/4])),
+        #     (100, 100),
+        # )
+
+        # # Set up the uncertainty-aware filter
+        # hjnnv_filter = hjnnvUncertaintyAwareFilter(
+        #     dynamics=self.dynamics,
+        #     pred_model=self.dynamics.get_state_estimate,
+        #     grid=grid,
+        #     num_controls=30,
+        #     num_disturbances=15,
+        # )
+
+        # # Use random calculations to jit compile things before the main loop
+        # v_star, u_star, worst_val, val_filter = hjnnv_filter.ua_filter(
+        #         jnp.array(np.tan(np.deg2rad(0))),
+        #         hj.sets.Box(
+        #             jnp.array([-0.1, -0.1]),
+        #             jnp.array([0.1, 0.1])
+        #         ),
+        #         num_states=10,
+        # )
+        # if settings.STATE_ESTIMATOR == 'tiny_taxinet':
+        #     dummy_input = jnp.zeros((128, 1))
+        # elif settings.STATE_ESTIMATOR == 'dnn':
+        #     dummy_input = jnp.zeros((1, 3, 224, 224))
+
+        # state_bounds = hjnnv_filter.nnv_state_bounds(
+        #     dummy_input,
+        #     0.03
+        # )
 
         super().__init__(dt=dt)
 
@@ -60,11 +98,12 @@ class BeaconSimulator(Simulator):
             return jnp.array([-2*(state[0]-1)-2*state[2], -2*(state[1]-1)-2*state[3]])
 
         # Generate 10 randomized initial states in the specified range
-        rng = np.random.default_rng(seed=0)
-        low = np.array([-3, -3, -2, -2])
-        high = np.array([12, 12, 2, 2])
-        x0s = [jnp.array(rng.uniform(low, high)) for _ in range(10)]
-
+        # key = jnp.array([0, 0], dtype=jnp.uint32)
+        low = jnp.array([-3, -3, -2, -2])
+        high = jnp.array([12, 12, 2, 2])
+        keys = jax.random.split(jax.random.PRNGKey(1), 3)
+        x0s = [jax.random.uniform(k, shape=(4,), minval=low, maxval=high) for k in keys]
+        trajectories = []
         for x0 in x0s:
             trajectory = self.dynamics.simulate_trajectory(
                 initial_state=x0,
@@ -72,15 +111,17 @@ class BeaconSimulator(Simulator):
                 num_steps=100,
                 use_observations=True,
             )
+            trajectories.append(trajectory)
 
-        results_dir = {"trajectory": trajectory}
+        results_dir = {"trajectory": trajectories}
 
         return results_dir
 
     def plot_expt_1_trajectory(self, results, show=True, save=False):
-        trajectory = results["trajectory"]
-        states = jnp.stack([s for s, _ in trajectory])
-        plt.plot(states[:, 0], states[:, 1], marker='o')
+        trajectories = results["trajectory"]
+        for i, trajectory in enumerate(trajectories):
+            states = jnp.stack([s for s, _ in trajectory])
+            plt.plot(states[:, 0], states[:, 1], marker='o', label=f"Trial {i}")
         plt.xlabel("x")
         plt.ylabel("y")
         plt.title("Trajectory")
