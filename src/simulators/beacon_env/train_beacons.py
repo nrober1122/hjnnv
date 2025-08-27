@@ -28,7 +28,67 @@ from torch.utils.data import Dataset, DataLoader
 import os
 from datetime import datetime
 
+from auto_LiRPA import BoundedModule, BoundedTensor, PerturbationLpNorm
+
 from learned_models.beacon.estimators.simple_estimator_gpt.estimator_mlp import MLP
+
+
+# def nnv_loss(x: torch.Tensor,
+#              pred: torch.Tensor,
+#              target: torch.Tensor,
+#              bounded_model: BoundedModule,
+#              epsilon=0.2
+#              ) -> torch.Tensor:
+#     # Compute the standard MSE loss
+#     mse_loss = nn.MSELoss()(pred, target)
+
+#     # Compute the certified bounds
+#     bounded_x = BoundedTensor(x, PerturbationLpNorm(norm=np.inf, eps=epsilon))
+#     # ipdb.set_trace()
+#     bounded_pred = bounded_model.compute_bounds(x=(bounded_x,), method="CROWN")
+
+#     # Compute the N-dimensional volume of the certified bounds box for the target
+#     lower, upper = bounded_pred
+#     # Volume of a box in N dimensions: product of (upper_i - lower_i) for each dimension
+#     cert_loss = torch.mean(torch.prod(upper-lower, axis=1))
+
+#     # ipdb.set_trace()
+
+#     # target_bounds = BoundedTensor(target, PerturbationLpNorm(2, eps=epsilon))
+#     # cert_loss = BoundedModule(pred_bounds, target_bounds)
+
+#     return mse_loss + 0.1*cert_loss
+
+def nnv_loss(x: torch.Tensor,
+             pred: torch.Tensor,
+             target: torch.Tensor,
+             bounded_model: BoundedModule,
+             epsilon: float = 0.2,
+             beta: float = 0.1) -> torch.Tensor:
+    # Standard MSE
+    mse_loss = nn.MSELoss()(pred, target)
+    cert_loss = 0.0
+
+    if beta > 0:
+        # Certified bounds under perturbations
+        bounded_x = BoundedTensor(x, PerturbationLpNorm(norm=np.inf, eps=epsilon))
+        lower, upper = bounded_model.compute_bounds(x=(bounded_x,), method="CROWN")
+
+        # Penalize bound width per dimension (mean width)
+        widths = upper - lower  # (batch, dim)
+        cert_loss = torch.mean(torch.mean(widths, dim=1))  
+
+        # Alternatively: log-volume
+        # cert_loss = torch.mean(torch.sum(torch.log(widths + 1e-12), dim=1))
+
+    return mse_loss + beta * cert_loss
+
+def beta_schedule_linear(epoch, max_beta=0.1, ramp_epochs=50, start_epoch=0):
+    if epoch < start_epoch:
+        return 0.0
+    # shift epoch so ramp starts at start_epoch
+    ramp_progress = (epoch - start_epoch) / ramp_epochs
+    return min(max_beta, max_beta * ramp_progress)
 
 # -------------------------------
 # Config
@@ -51,10 +111,11 @@ class Config:
     # process & measurement noise
     sigma_process_pos: float = 0.01
     sigma_process_vel: float = 0.005
-    sigma_range: float = 0.02     # range noise
+    sigma_range: float = 0.1     # range noise
 
     # beacon positions (non-collinear for observability)
-    beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (4.0, 4.0))
+    # beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (4.0, 4.0))
+    beacons: Tuple[Tuple[float, float], ...] = ((-3.0, -3.0), (12.0, -3.0), (-3.0, 12.0), (4.0, 4.0))
 
     # training
     batch_size: int = 256
@@ -62,8 +123,11 @@ class Config:
     lr: float = 1e-3
     hidden: int = 256
 
+    # loss_fn: callable = nnv_loss
+    epsilon: float = 0.1
+
     results_dir = "/home/nick/code/hjnnv/src/learned_models/" \
-        "beacon/estimators/simple_estimator_3t/scratch"
+        "beacon/estimators/simple_estimator_3t_long_range/scratch"
 
 
 cfg = Config()
@@ -216,6 +280,27 @@ def train(cfg: Config):
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
     loss_fn = nn.MSELoss()
+    # loss_fn = nnv_loss
+
+    # bound_opts: dict = {
+    #     'relu': "CROWN-IBP",
+    #     # 'relu': "IBP",
+    #     'sparse_intermediate_bounds': False,
+    #     'sparse_conv_intermediate_bounds': False,
+    #     'sparse_intermediate_bounds_with_ibp': False,
+    #     'sparse_features_alpha': False,
+    #     'sparse_spec_alpha': False,
+    #     'reduce_layers': False,
+    #     # 'zero-lb': True,
+    #     # 'same-slope': True,
+    # }
+    # dummy_input = torch.randn(1, 12).to(device)
+    # bounded_model = BoundedModule(
+    #     model,
+    #     dummy_input,
+    #     bound_opts=bound_opts,
+    #     device=device
+    # )
 
     def run(loader):
         model.eval()
@@ -237,11 +322,13 @@ def train(cfg: Config):
 
     for epoch in range(1, cfg.epochs+1):
         model.train()
+        beta = beta_schedule_linear(epoch, max_beta=0.05, ramp_epochs=60, start_epoch=20)
         for x, y in train_loader:
             x = x.to(device)
             y = y.to(device)
             opt.zero_grad()
             yhat = model(x)
+            # loss = loss_fn(x, yhat, y, bounded_model, beta=beta)
             loss = loss_fn(yhat, y)
             loss.backward()
             opt.step()

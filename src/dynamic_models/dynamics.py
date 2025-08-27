@@ -13,8 +13,10 @@ class HJNNVDynamics(hj.ControlAndDisturbanceAffineDynamics):
                  control_mode="max",
                  disturbance_mode="min",
                  control_space=None,
-                 disturbance_space=None):
+                 disturbance_space=None,
+                 random_seed=0):
         self.dt = dt
+        self.key = jax.random.PRNGKey(random_seed)
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     @abc.abstractmethod
@@ -40,13 +42,17 @@ class HJNNVDynamics(hj.ControlAndDisturbanceAffineDynamics):
 
     def get_random_disturbance(self):
         if isinstance(self.disturbance_space, hj.sets.Box):
+            self.key, subkey = jax.random.split(self.key)
             lo = self.disturbance_space.lo
             hi = self.disturbance_space.hi
-            return jax.random.uniform(jax.random.PRNGKey(0), shape=lo.shape, minval=lo, maxval=hi)
+            return jax.random.uniform(subkey, shape=lo.shape, minval=lo, maxval=hi)
         else:
             raise NotImplementedError(
                 "Only Box disturbance space is supported for random sampling."
             )
+
+    def set_random_seed(self, random_seed):
+        self.key = jax.random.PRNGKey(random_seed)
 
     def simulate_trajectory(self, initial_state, control_policy, num_steps, use_observations=False):
         state = initial_state

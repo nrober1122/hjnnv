@@ -30,12 +30,12 @@ class BeaconSimulator(Simulator):
             }
         }
 
-        # grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
-        #     hj.sets.Box(
-        #         np.array([-18., -np.pi/4]),
-        #         np.array([18., np.pi/4])),
-        #     (100, 100),
-        # )
+        grid = hj.Grid.from_lattice_parameters_and_boundary_conditions(
+            hj.sets.Box(
+                np.array([-5., -5., -5., -5.]),
+                np.array([15., 15., 5., 5.])),
+            (50, 50, 50, 50),
+        )
 
         # # Set up the uncertainty-aware filter
         # hjnnv_filter = hjnnvUncertaintyAwareFilter(

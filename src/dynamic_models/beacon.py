@@ -7,6 +7,7 @@ import torch
 
 from dynamic_models.dynamics import HJNNVDynamics
 from learned_models.beacon.estimators.simple_estimator_gpt.estimator_mlp import MLP
+from utils.mlp2jax import torch_mlp2jax
 
 class BeaconDynamics(HJNNVDynamics):
 
@@ -19,7 +20,10 @@ class BeaconDynamics(HJNNVDynamics):
                  control_mode="max",
                  disturbance_mode="min",
                  control_space=None,
-                 disturbance_space=None):
+                 disturbance_space=None,
+                 model_name="simple_estimator_3",
+                 random_seed=0
+                 ):
 
         if control_space is None:
             control_space = hj.sets.Box(jnp.array([-max_input, -max_input]),
@@ -40,13 +44,20 @@ class BeaconDynamics(HJNNVDynamics):
                 ])
             )
 
-        self.beacons = jnp.array([[0.0, 0.0], [8.0, 0.0], [0.0, 8.0], [4.0, 4.0]])
+        # self.beacons = jnp.array([[0.0, 0.0], [8.0, 0.0], [0.0, 8.0], [4.0, 4.0]])
         self.range_disturbance = range_disturbance
-        self.load_estimator()
+        self.load_estimator(model_name=model_name)
         self.previous_observations = jnp.array([0., 0.])
+        self.state_hat = jnp.array([5., 5., 0., 0.])
 
-
-        super().__init__(dt, control_mode, disturbance_mode, control_space, disturbance_space)
+        super().__init__(
+            dt,
+            control_mode,
+            disturbance_mode,
+            control_space,
+            disturbance_space,
+            random_seed
+        )
 
     def open_loop_dynamics(self, state, time):
         _, _, vx, vy = state
@@ -64,10 +75,11 @@ class BeaconDynamics(HJNNVDynamics):
         return jnp.eye(4)
 
     def get_observation(self, state, time):
+        self.key, subkey = jax.random.split(self.key)
         pos = jnp.array([state[0], state[1]])
         d = jnp.linalg.norm(self.beacons - pos, axis=1)  # (3,)
         d_noisy = d + jax.random.uniform(
-            jax.random.PRNGKey(0),
+            subkey,
             shape=d.shape,
             minval=-self.range_disturbance,
             maxval=self.range_disturbance
@@ -90,9 +102,12 @@ class BeaconDynamics(HJNNVDynamics):
 
         return d_noisy_seq
 
-    def load_estimator(self):
+    def load_estimator(self, model_name="simple_estimator_3"):
+        
         checkpoint = torch.load(
-            "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/simple_estimator_3t/best_model.pt",
+            "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/"
+            + model_name
+            + "/best_model.pt",
             map_location="cpu",
         )
 
@@ -103,14 +118,15 @@ class BeaconDynamics(HJNNVDynamics):
         self.estimator.load_state_dict(checkpoint["model_state_dict"])
         self.estimator.eval()
 
+        self.estimator = torch_mlp2jax(self.estimator)
+
         # optional: keep normalization params if you need them later
         self.in_mean = checkpoint.get("in_mean", None)
         self.in_std = checkpoint.get("in_std", None)
-        
+        self.beacons = jnp.array(config["beacons"])
 
     def get_state_estimate(self, obs):
-        obs = torch.tensor(np.array(obs)).unsqueeze(0)
+        # obs = torch.tensor(np.array(obs)).unsqueeze(0)
         obs = (obs - self.in_mean) / self.in_std
-        with torch.no_grad():
-            state_hat = self.estimator(obs).detach().numpy()
+        state_hat = self.estimator(obs)
         return state_hat
