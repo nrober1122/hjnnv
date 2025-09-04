@@ -9,8 +9,8 @@ from dynamic_models.dynamics import HJNNVDynamics
 from learned_models.beacon.estimators.simple_estimator_gpt.estimator_mlp import MLP
 from utils.mlp2jax import torch_mlp2jax
 
-class BeaconDynamics(HJNNVDynamics):
 
+class BeaconDynamics(HJNNVDynamics):
     def __init__(self,
                  dt=0.1,
                  max_input=1.0,
@@ -129,4 +129,21 @@ class BeaconDynamics(HJNNVDynamics):
         # obs = torch.tensor(np.array(obs)).unsqueeze(0)
         obs = (obs - self.in_mean) / self.in_std
         state_hat = self.estimator(obs)
+        return state_hat
+
+    def get_smoothed_state_estimate(self, obs, alpha=0.7):
+        prev_state_hat = obs[:4]
+        prev_input = obs[jnp.array([4, 5])]
+        obs = obs[6:]
+
+        # print("prev_state_hat:", prev_state_hat)
+        # print("prev_input:", prev_input)
+
+        state_hat_nn = self.get_state_estimate(obs)
+        state_hat_dyn = self.step(
+            prev_state_hat,
+            prev_input,
+            jnp.array([0., 0., 0., 0.])
+        )
+        state_hat = alpha * state_hat_nn + (1-alpha) * state_hat_dyn
         return state_hat

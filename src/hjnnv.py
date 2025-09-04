@@ -124,7 +124,7 @@ class hjnnvUncertaintyAwareFilter:
         return hj.sets.Box(out_lb.flatten(), out_ub.flatten())
 
     @functools.partial(jax.jit, static_argnames=("self", "num_states"))
-    def ua_filter_max_val(self, u_control, state_bounds, num_states=5):
+    def ua_filter_max_val(self, u_control, state_bounds, num_states=5, eps=1e-7):
         """
         Evaluates and filters control actions based on their worst-case performance over a grid of states and disturbances.
         This method constructs a grid of states within the provided bounds, and for each candidate control input,
@@ -176,11 +176,16 @@ class hjnnvUncertaintyAwareFilter:
         distances = jnp.linalg.norm(self.control_vals - u_control, axis=-1) \
             if self.control_vals.ndim > 1 else jnp.abs(self.control_vals - u_control)
 
-        # Stack min_vals and distances for lexicographic sorting: (-value first, distance second)
-        best_idx = jnp.lexsort((distances, -min_vals))[0]
+        # # Stack min_vals and distances for lexicographic sorting: (-value first, distance second)
+        # best_idx = jnp.lexsort((distances, -min_vals))[0]
+        # best_u = self.control_vals[best_idx]
+        
+        mask = min_vals >= (best_val - eps)  # candidates within tolerance
+        # among candidates, pick closest to nominal u_control
+        best_idx = jnp.argmin(jnp.where(mask, distances, jnp.inf))
         best_u = self.control_vals[best_idx]
 
-        return best_val, best_u, worst_val, val_filter
+        return best_val, best_u, worst_val, val_filter, min_vals, distances
     
     @functools.partial(jax.jit, static_argnames=("self", "num_states"))
     def ua_filter_best_u(self, u_control, state_bounds, num_states=5, delta=0.0):
@@ -209,6 +214,7 @@ class hjnnvUncertaintyAwareFilter:
 
         def evaluate_u(u):
             u = jnp.atleast_1d(u)
+
             def eval_x_d(x):
                 def eval_d(d):
                     d = jnp.atleast_1d(d)
@@ -246,7 +252,7 @@ class hjnnvUncertaintyAwareFilter:
 
         best_u = self.control_vals[best_idx]
 
-        return best_val, best_u, worst_val, val_filter
+        return best_val, best_u, worst_val, val_filter, min_vals, distances, any_above, best_idx
 
 
     # @functools.partial(jax.jit, static_argnames=("self", "num_states"))
