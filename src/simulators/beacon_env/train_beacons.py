@@ -30,7 +30,7 @@ from datetime import datetime
 
 from auto_LiRPA import BoundedModule, BoundedTensor, PerturbationLpNorm
 
-from learned_models.beacon.estimators.simple_estimator_gpt.estimator_mlp import MLP
+from learned_models.beacon.estimators import MLP
 
 
 # def nnv_loss(x: torch.Tensor,
@@ -115,7 +115,7 @@ class Config:
 
     # beacon positions (non-collinear for observability)
     # beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (4.0, 4.0))
-    beacons: Tuple[Tuple[float, float], ...] = ((-3.0, -3.0), (12.0, -3.0), (-3.0, 12.0), (4.0, 4.0))
+    beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (10.0, 10.0))
 
     # training
     batch_size: int = 256
@@ -127,7 +127,7 @@ class Config:
     epsilon: float = 0.1
 
     results_dir = "/home/nick/code/hjnnv/src/learned_models/" \
-        "beacon/estimators/simple_estimator_3t_long_range/scratch"
+        "beacon/estimators/image_estimator_test/scratch"
 
 
 cfg = Config()
