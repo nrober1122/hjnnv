@@ -9,6 +9,7 @@ from dynamic_models.dynamics import HJNNVDynamics
 from learned_models.beacon.estimators import MLP, CNN
 
 from utils.mlp2jax import torch_mlp2jax
+from utils.torch2jaxmodel import torch_to_jax_model
 
 
 class BeaconDynamics(HJNNVDynamics):
@@ -22,6 +23,7 @@ class BeaconDynamics(HJNNVDynamics):
                  disturbance_mode="min",
                  control_space=None,
                  disturbance_space=None,
+                 obs_type="distances",
                  model_name="simple_estimator_3t",
                  random_seed=0
                  ):
@@ -47,6 +49,7 @@ class BeaconDynamics(HJNNVDynamics):
 
         # self.beacons = jnp.array([[0.0, 0.0], [8.0, 0.0], [0.0, 8.0], [4.0, 4.0]])
         self.range_disturbance = range_disturbance
+        self.obs_type = obs_type
         self.load_estimator(model_name=model_name)
         self.previous_observations = jnp.array([0., 0.])
         self.state_hat = jnp.array([5., 5., 0., 0.])
@@ -75,20 +78,21 @@ class BeaconDynamics(HJNNVDynamics):
     def disturbance_jacobian(self, state, time):
         return jnp.eye(4)
 
-    def get_observation(self, state, time, mode="distances"):
+    def get_observation(self, state, time):
         self.key, subkey = jax.random.split(self.key)
 
-        if mode == "distance":
+        if self.obs_type == "distances":
             obs_noisy = self.observe_distance(state, subkey)  # shape (num_beacons,)
             num_beacons = obs_noisy.shape[0]
             history_len = 3
             concatenate_axis = 0
 
-        elif mode == "images":
+        elif self.obs_type == "images":
             focal_length = 0.05
-            max_theta = jnp.pi / 3
-            lm_h, lm_w = 1.618, 1.0
-            image_width, image_height = 256, 256
+            max_theta = jnp.pi / 2
+            lm_h, lm_w = 1.618*3, 1.0*0.5
+            image_width, image_height = 128, 128
+            # image_width, image_height = 64, 64
             obs_noisy = self.observe_image(
                 state,
                 image_width,
@@ -110,14 +114,14 @@ class BeaconDynamics(HJNNVDynamics):
             return self.previous_observations
 
         # Update history
-        if mode == "distances":
+        if self.obs_type == "distances":
             # drop oldest block of beacons, append newest
             self.previous_observations = jnp.concatenate(
                 [self.previous_observations[num_beacons:], obs_noisy],
                 axis=concatenate_axis
             )
 
-        elif mode == "images":
+        elif self.obs_type == "images":
             # drop oldest frame, append newest
             self.previous_observations = jnp.concatenate(
                 [self.previous_observations[..., 1:], obs_noisy],
@@ -270,12 +274,12 @@ class BeaconDynamics(HJNNVDynamics):
 
             for xa, xb in x_ranges:
                 if xa < xb and y0 < y1:
-                    fade = max(1.0 - 0.05 * distances[idx], 0.2)  # simple fade with distance
+                    fade = max(1.0 - 0.1 * distances[idx], 0.15)  # simple fade with distance
                     image = image.at[y0:y1, xa:xb, 0].set(fade)
 
         return image
 
-    def load_estimator(self, model_name="simple_estimator_3"):
+    def load_estimator(self, model_name="simple_estimator_3t"):
 
         checkpoint = torch.load(
             "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/"
@@ -285,13 +289,18 @@ class BeaconDynamics(HJNNVDynamics):
         )
 
         config = checkpoint.get("config_dict", None)
-        self.estimator = MLP(in_dim=12, out_dim=4, hidden=config["hidden"])
+
+        if self.obs_type == "distances":
+            self.estimator = MLP(in_dim=12, out_dim=4, hidden=config["hidden"])
+        elif self.obs_type == "images":
+            self.estimator = CNN(input_channels=3, out_dim=4, H=128, W=128)
 
         # load just the weights
         self.estimator.load_state_dict(checkpoint["model_state_dict"])
         self.estimator.eval()
 
-        self.estimator = torch_mlp2jax(self.estimator)
+        # self.estimator = torch_mlp2jax(self.estimator)
+        self.estimator = torch_to_jax_model(self.estimator)
 
         # optional: keep normalization params if you need them later
         self.in_mean = checkpoint.get("in_mean", None)
@@ -300,7 +309,10 @@ class BeaconDynamics(HJNNVDynamics):
 
     def get_state_estimate(self, obs):
         # obs = torch.tensor(np.array(obs)).unsqueeze(0)
-        obs = (obs - self.in_mean) / self.in_std
+        if self.obs_type == "distances":
+            obs = (obs - self.in_mean) / self.in_std
+        elif self.obs_type == "images":
+            obs = obs.reshape((3, 128, 128))
         state_hat = self.estimator(obs)
         return state_hat
 
