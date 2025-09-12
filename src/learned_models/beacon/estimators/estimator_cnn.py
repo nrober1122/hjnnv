@@ -25,7 +25,6 @@ class CNN(nn.Module):
         self.fc1 = nn.Linear(flatten_size, hidden1)
         self.fc2 = nn.Linear(hidden1, hidden2)
         self.fc3 = nn.Linear(hidden2, out_dim)
-        print("model created!")
 
     def _forward_convs(self, x):
         x = F.relu(self.conv1(x))
