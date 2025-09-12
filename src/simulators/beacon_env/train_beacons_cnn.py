@@ -40,11 +40,11 @@ class Config:
     seed: int = 123
     dt: float = 0.1
     T: int = 60
-    n_traj_train: int = 1000
-    n_traj_val: int = 200
-    n_traj_test: int = 200
-    x_range: Tuple[float, float] = (-3.0, 12.0)
-    y_range: Tuple[float, float] = (-3.0, 12.0)
+    n_traj_train: int = 2000
+    n_traj_val: int = 400
+    n_traj_test: int = 400
+    x_range: Tuple[float, float] = (-1.0, 11.0)
+    y_range: Tuple[float, float] = (-1.0, 11.0)
     vx_range: Tuple[float, float] = (-3.0, 3.0)
     vy_range: Tuple[float, float] = (-3.0, 3.0)
     sigma_process_pos: float = 0.01
@@ -53,13 +53,14 @@ class Config:
     beacons: Tuple[Tuple[float, float], ...] = (
         (0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (10.0, 10.0)
     )
+    image_size: Tuple[int, int] = (128, 128)  # (H,W)
     batch_size: int = 128
-    epochs: int = 50
+    epochs: int = 150
     lr: float = 1e-3
     hidden: int = 256
     obs_mode: str = "images"   # "distance" or "images"
-    data_dir: str = "/home/nick/code/hjnnv/data/scratch/beacons/beacons_image_data"
-    results_dir: str = "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/image_estimator/scratch"
+    data_dir: str = "/home/nrober/code/hjnnv/hjnnv/data/scratch/beacons/beacons_image_data"
+    results_dir: str = "/home/nrober/code/hjnnv/hjnnv/src/learned_models/beacon/estimators/image_estimator/scratch"
 
 
 cfg = Config()
@@ -200,9 +201,10 @@ def make_loaders(cfg: Config):
         val_ds = RangeHistoryDataset(cfg, cfg.n_traj_val, in_mean, in_std)
         test_ds = RangeHistoryDataset(cfg, cfg.n_traj_test, in_mean, in_std)
     else:  # images
-        train_ds = ImageHistoryDataset(cfg, cfg.n_traj_train)
-        val_ds = ImageHistoryDataset(cfg, cfg.n_traj_val)
-        test_ds = ImageHistoryDataset(cfg, cfg.n_traj_test)
+        H, W = cfg.image_size
+        train_ds = ImageHistoryDataset(cfg, cfg.n_traj_train, image_size=(H, W))
+        val_ds = ImageHistoryDataset(cfg, cfg.n_traj_val, image_size=(H, W))
+        test_ds = ImageHistoryDataset(cfg, cfg.n_traj_test, image_size=(H, W))
 
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=64, shuffle=False)

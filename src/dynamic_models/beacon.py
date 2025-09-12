@@ -86,9 +86,9 @@ class BeaconDynamics(HJNNVDynamics):
 
         elif mode == "images":
             focal_length = 0.05
-            max_theta = jnp.pi / 3
-            lm_h, lm_w = 1.618, 1.0
-            image_width, image_height = 256, 256
+            max_theta = jnp.pi / 2
+            lm_h, lm_w = 1.618*3, 1.0*0.5
+            image_width, image_height = 128, 128
             obs_noisy = self.observe_image(
                 state,
                 image_width,
@@ -270,7 +270,7 @@ class BeaconDynamics(HJNNVDynamics):
 
             for xa, xb in x_ranges:
                 if xa < xb and y0 < y1:
-                    fade = max(1.0 - 0.05 * distances[idx], 0.2)  # simple fade with distance
+                    fade = max(1.0 - 0.1 * distances[idx], 0.15)  # simple fade with distance
                     image = image.at[y0:y1, xa:xb, 0].set(fade)
 
         return image
@@ -278,7 +278,7 @@ class BeaconDynamics(HJNNVDynamics):
     def load_estimator(self, model_name="simple_estimator_3"):
 
         checkpoint = torch.load(
-            "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/"
+            "/home/nrober/code/hjnnv/hjnnv/src/learned_models/beacon/estimators/"
             + model_name
             + "/best_model.pt",
             map_location="cpu",
