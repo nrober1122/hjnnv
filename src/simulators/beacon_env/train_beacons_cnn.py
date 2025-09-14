@@ -58,7 +58,7 @@ class Config:
     epochs: int = 150
     lr: float = 1e-3
     hidden: int = 256
-    obs_mode: str = "images"   # "distance" or "images"
+    obs_mode: str = "images"   # "distances" or "images"
     data_dir: str = "/home/nrober/code/hjnnv/hjnnv/data/scratch/beacons/beacons_image_data"
     results_dir: str = "/home/nrober/code/hjnnv/hjnnv/src/learned_models/beacon/estimators/image_estimator/scratch"
 
@@ -152,13 +152,11 @@ class ImageHistoryDataset(Dataset):
             max_position_disturbance=cfg.sigma_process_pos,
             max_vel_disturbance=cfg.sigma_process_vel,
             range_disturbance=cfg.sigma_range,
+            obs_type=cfg.obs_mode,
             model_name="simple_estimator_3t",
             random_seed=cfg.seed
         )
         dyn.beacons = np.array(cfg.beacons)
-        lm_h, lm_w = 1.618, 1.0
-        focal_length = 0.05
-        max_theta = np.pi / 3
 
         for k in range(n_traj):
             print(f"Generating images for trajectory {k+1}/{n_traj}...")
@@ -167,8 +165,7 @@ class ImageHistoryDataset(Dataset):
             for t in range(2, cfg.T):
                 imgs = []
                 for tau in [t-2, t-1, t]:
-                    img = np.array(dyn.observe_image(states[tau], W, H, lm_h, lm_w,
-                                                     focal_length, max_theta))
+                    img = np.array(dyn.get_observation(states[tau], time=t))
                     imgs.append(img)  # (H,W,1)
                 inp = np.concatenate(imgs, axis=-1)  # (H,W,3)
                 self.inputs.append(inp.astype(np.float32) / 1.0)  # keep [0,1]
@@ -181,21 +178,11 @@ class ImageHistoryDataset(Dataset):
     def __getitem__(self, idx): return self.inputs[idx], self.targets[idx]
 
 
-def render_image(state, beacons, H, W, lm_h=1.618, lm_w=1.0,
-                 focal_length=0.05, max_theta=np.pi/3):
-    """Minimal wrapper around your BeaconDynamics.observe_image."""
-    dyn = BeaconDynamics()
-    dyn.beacons = np.array(beacons)
-    img = np.array(dyn.observe_image(state, W, H, lm_h, lm_w,
-                                     focal_length, max_theta))
-    return img  # (H,W,1)
-
-
 # -------------------------------
 # Data loaders
 # -------------------------------
 def make_loaders(cfg: Config):
-    if cfg.obs_mode == "distance":
+    if cfg.obs_mode == "distances":
         train_ds = RangeHistoryDataset(cfg, cfg.n_traj_train)
         in_mean, in_std = train_ds.in_mean, train_ds.in_std
         val_ds = RangeHistoryDataset(cfg, cfg.n_traj_val, in_mean, in_std)
@@ -277,7 +264,7 @@ def train(cfg: Config):
     train_loader, val_loader, test_loader, train_ds = get_dataloaders(cfg, make_loaders)
 
     # Model
-    if cfg.obs_mode == "distance":
+    if cfg.obs_mode == "distances":
         model = MLP(in_dim=12, out_dim=4, hidden=cfg.hidden).to(device)
     else:
         C = train_ds.inputs.shape[-1]   # should be 3
