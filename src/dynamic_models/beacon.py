@@ -552,7 +552,7 @@ class BeaconDynamics(HJNNVDynamics):
     def load_estimator(self, model_name="simple_estimator_3t"):
 
         checkpoint = torch.load(
-            "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/"
+            "/home/nrober/code/hjnnv/hjnnv/src/learned_models/beacon/estimators/"
             + model_name
             + "/best_model.pt",
             map_location="cpu",
