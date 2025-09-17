@@ -12,8 +12,10 @@ class CNN(nn.Module):
     def __init__(self, input_channels=3, out_dim=4, hidden1=64, hidden2=32, H=224, W=224):
         super().__init__()
         # Two lightweight conv layers; strides chosen to reduce size
-        self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=4, stride=4, padding=0)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=4, padding=0)
+        # self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=4, stride=4, padding=0)
+        # self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=4, padding=0)
+        self.conv1 = nn.Conv2d(input_channels, 16, kernel_size=2, stride=2, padding=0)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=2, stride=2, padding=0)
 
         # Dynamically compute flatten size
         with torch.no_grad():
@@ -23,8 +25,9 @@ class CNN(nn.Module):
 
         # MLP head
         self.fc1 = nn.Linear(flatten_size, hidden1)
-        self.fc2 = nn.Linear(hidden1, hidden2)
-        self.fc3 = nn.Linear(hidden2, out_dim)
+        # self.fc2 = nn.Linear(hidden1, hidden1)
+        # self.fc3 = nn.Linear(hidden1, hidden2)
+        self.fc4 = nn.Linear(hidden1, out_dim)
 
     def _forward_convs(self, x):
         x = F.relu(self.conv1(x))
@@ -35,10 +38,10 @@ class CNN(nn.Module):
         x = self._forward_convs(z)
         x = torch.flatten(x, 1)  # (B, flatten_size)
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)  # linear output
+        # x = F.relu(self.fc2(x))
+        # x = F.relu(self.fc3(x))
+        x = self.fc4(x)  # linear output
         return x
-
 
 # class CNN(nn.Module):
 #     """

@@ -39,7 +39,8 @@ def torch_to_jax_model(model):
     # ---------------- CNN ----------------
     if isinstance(model, CNN):
         convs = [model.conv1, model.conv2]
-        fcs = [model.fc1, model.fc2, model.fc3]
+        # fcs = [model.fc1, model.fc2, model.fc3]
+        fcs = [model.fc1, model.fc4]  # for the smaller model version
 
         # Extract conv weights as OIHW (same ordering PyTorch uses)
         conv_ws, conv_bs, conv_strides = [], [], []
