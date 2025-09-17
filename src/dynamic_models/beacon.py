@@ -50,7 +50,7 @@ class BeaconDynamics(HJNNVDynamics):
         # self.beacons = jnp.array([[0.0, 0.0], [8.0, 0.0], [0.0, 8.0], [4.0, 4.0]])
         self.range_disturbance = range_disturbance
         self.obs_type = obs_type
-        self.load_estimator(model_name=model_name)
+        # self.load_estimator(model_name=model_name)
         self.previous_observations = jnp.array([0., 0.])
         self.state_hat = jnp.array([5., 5., 0., 0.])
 
@@ -91,7 +91,7 @@ class BeaconDynamics(HJNNVDynamics):
             focal_length = 0.05
             max_theta = jnp.pi / 2
             lm_h, lm_w = 1.618*3, 1.0*0.5
-            image_width, image_height = 128, 128
+            image_width, image_height = 64, 32
             # image_width, image_height = 64, 64
             obs_noisy = self.observe_image(
                 state,
@@ -99,6 +99,7 @@ class BeaconDynamics(HJNNVDynamics):
                 image_height,
                 lm_h,
                 lm_w,
+                subkey,
                 focal_length,
                 max_theta
             )  # shape (H, W)
@@ -188,6 +189,7 @@ class BeaconDynamics(HJNNVDynamics):
                       image_height,
                       lm_h,
                       lm_w,
+                      subkey,
                       focal_length=1.0,
                       max_theta=jnp.pi/3
                       ):
@@ -205,7 +207,9 @@ class BeaconDynamics(HJNNVDynamics):
             x = image_width - shifted / (2 * jnp.pi) * image_width
             return x.astype(int)
 
-        image = jnp.zeros((image_height, image_width, 1))
+        # image = jnp.zeros((image_height, image_width, 1))
+        image = jax.random.normal(subkey, (image_height, image_width, 1)) * self.range_disturbance
+        image = jnp.clip(image, 0.0, 1.0)
 
         beacon_arr = jnp.array(self.beacons)
 
@@ -274,7 +278,8 @@ class BeaconDynamics(HJNNVDynamics):
 
             for xa, xb in x_ranges:
                 if xa < xb and y0 < y1:
-                    fade = max(1.0 - 0.1 * distances[idx], 0.15)  # simple fade with distance
+                    fade = max(1.0 - 0.05 * distances[idx], 0.5)  # simple fade with distance
+                    # fade = 1.0
                     image = image.at[y0:y1, xa:xb, 0].set(fade)
 
         return image
