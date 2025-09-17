@@ -31,6 +31,7 @@ from datetime import datetime
 
 from learned_models.beacon.estimators import MLP, CNN
 from dynamic_models.beacon import BeaconDynamics
+import jax
 
 # -------------------------------
 # Config
@@ -40,27 +41,34 @@ class Config:
     seed: int = 123
     dt: float = 0.1
     T: int = 60
-    n_traj_train: int = 2000
-    n_traj_val: int = 400
-    n_traj_test: int = 400
+    n_traj_train: int = 4000
+    n_traj_val: int = 800
+    n_traj_test: int = 800
     x_range: Tuple[float, float] = (-1.0, 11.0)
     y_range: Tuple[float, float] = (-1.0, 11.0)
     vx_range: Tuple[float, float] = (-3.0, 3.0)
     vy_range: Tuple[float, float] = (-3.0, 3.0)
     sigma_process_pos: float = 0.01
     sigma_process_vel: float = 0.005
-    sigma_range: float = 0.1
+    sigma_range: float = 0.01
+    
     beacons: Tuple[Tuple[float, float], ...] = (
         (0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (10.0, 10.0)
     )
-    image_size: Tuple[int, int] = (128, 128)  # (H,W)
+    image_size: Tuple[int, int] = (16, 64)  # (H,W)
+    lm_h: float = 1.618 * 3
+    lm_w: float = 1.0 * 0.5
+    focal_length: float = 0.05
+    max_theta: float = math.pi / 2
+
     batch_size: int = 128
-    epochs: int = 150
+    epochs: int = 100
     lr: float = 1e-3
     hidden: int = 256
+    stride: int = 4 # for CNN
     obs_mode: str = "images"   # "distances" or "images"
     data_dir: str = "/home/nrober/code/hjnnv/hjnnv/data/scratch/beacons/beacons_image_data"
-    results_dir: str = "/home/nrober/code/hjnnv/hjnnv/src/learned_models/beacon/estimators/image_estimator/scratch"
+    results_dir: str = "/home/nrober/code/hjnnv/hjnnv/src/learned_models/beacon/estimators/image_estimator_32x64_nofade/scratch"
 
 
 cfg = Config()
@@ -153,7 +161,7 @@ class ImageHistoryDataset(Dataset):
             max_vel_disturbance=cfg.sigma_process_vel,
             range_disturbance=cfg.sigma_range,
             obs_type=cfg.obs_mode,
-            model_name="simple_estimator_3t",
+            model_name="image_estimator",
             random_seed=cfg.seed
         )
         dyn.beacons = np.array(cfg.beacons)
@@ -165,7 +173,8 @@ class ImageHistoryDataset(Dataset):
             for t in range(2, cfg.T):
                 imgs = []
                 for tau in [t-2, t-1, t]:
-                    img = np.array(dyn.get_observation(states[tau], time=t))
+                    subkey = jax.random.PRNGKey(random.randint(0, int(1e6)))
+                    img = np.array(dyn.observe_image(states[tau], image_width=W, image_height=H, lm_h=cfg.lm_h, lm_w=cfg.lm_w, subkey=subkey, focal_length=cfg.focal_length, max_theta=cfg.max_theta))
                     imgs.append(img)  # (H,W,1)
                 inp = np.concatenate(imgs, axis=-1)  # (H,W,3)
                 self.inputs.append(inp.astype(np.float32) / 1.0)  # keep [0,1]
@@ -265,11 +274,11 @@ def train(cfg: Config):
 
     # Model
     if cfg.obs_mode == "distances":
-        model = MLP(in_dim=12, out_dim=4, hidden=cfg.hidden).to(device)
+        model = MLP(in_dim=12, out_dim=4, hidden=cfg.hidden, stride=cfg.stride).to(device)
     else:
         C = train_ds.inputs.shape[-1]   # should be 3
         H, W = train_ds.inputs.shape[1:3]
-        model = CNN(input_channels=C, out_dim=4, H=H, W=W).to(device)
+        model = CNN(input_channels=C, out_dim=4, hidden1=cfg.hidden, hidden2=cfg.hidden, H=H, W=W).to(device)
 
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     loss_fn = nn.MSELoss()

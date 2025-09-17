@@ -1,1 +1,7 @@
+<<<<<<< HEAD
 First attempt at a CNN that takes in images
+=======
+64 x 128
+20250913_160830 has rsme ~ 0.16 and used solid obstacles with no distance fade
+also only has one hidden layer and stride 2
+>>>>>>> c0ca5fec4785c42c2fafa72c5cf9a2a6c0ddf5ff
