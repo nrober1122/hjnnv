@@ -50,7 +50,7 @@ class BeaconDynamics(HJNNVDynamics):
         # self.beacons = jnp.array([[0.0, 0.0], [8.0, 0.0], [0.0, 8.0], [4.0, 4.0]])
         self.range_disturbance = range_disturbance
         self.obs_type = obs_type
-        self.image_size = (128, 16)  # (width, height)
+        # self.image_size = (224, 16)  # (width, height)
         self.load_estimator(model_name=model_name)
         self.previous_observations = jnp.array([0., 0.])
         self.state_hat = jnp.array([5., 5., 0., 0.])
@@ -87,13 +87,14 @@ class BeaconDynamics(HJNNVDynamics):
             num_beacons = obs_noisy.shape[0]
             history_len = 3
             concatenate_axis = 0
+            skip = 0
 
         elif self.obs_type == "images":
             focal_length = 0.05
             max_theta = jnp.pi / 2
             lm_h, lm_w = 1.618*4, 1.0*0.5
             # image_width, image_height = 128, 128
-            image_width, image_height = self.image_size
+            image_height, image_width = self.image_size
             # image_width, image_height = 64, 64
             obs_noisy = self.observe_image(
                 state,
@@ -108,13 +109,17 @@ class BeaconDynamics(HJNNVDynamics):
             obs_noisy = obs_noisy[..., None]  # (H, W, 1)
             history_len = 3
             concatenate_axis = -1
+            skip = 1
 
         # Initialize history buffer
         if time == 0:
             self.previous_observations = jnp.concatenate(
                 [obs_noisy] * history_len, axis=concatenate_axis
             )
-            return self.previous_observations
+            if skip == 0:
+                return self.previous_observations
+            else:
+                return self.previous_observations[..., ::2]
 
         # Update history
         if self.obs_type == "distances":
@@ -130,8 +135,10 @@ class BeaconDynamics(HJNNVDynamics):
                 [self.previous_observations[..., 1:], obs_noisy],
                 axis=concatenate_axis
             )
-
-        return self.previous_observations
+        if skip == 0:
+            return self.previous_observations
+        else:
+            return self.previous_observations[..., ::2]
 
     # def get_observation(self, state, time, mode="distance"):
     #     self.key, subkey = jax.random.split(self.key)
@@ -184,6 +191,107 @@ class BeaconDynamics(HJNNVDynamics):
             maxval=self.range_disturbance
         )
         return d_noisy
+
+    # def observe_image(self,
+    #                   state,
+    #                   image_width,
+    #                   image_height,
+    #                   lm_h,
+    #                   lm_w,
+    #                   subkey,
+    #                   focal_length=1.0,
+    #                   max_theta=jnp.pi/3,
+    #                   ):
+    #     """
+    #     Draw rectangular landmarks into a panoramic image.
+    #     Panoramic seam is at -pi/2, center is +pi/2 (positive y-axis).
+    #     """
+    #     def angle2pixel_centered(angle, image_width):
+    #         """
+    #         Map [-pi, pi] angle into pixel coordinate [0, image_width),
+    #         with pi/2 in the center and -pi/2 at the seam.
+    #         """
+    #         shifted = angle + jnp.pi/2.0         # shift so -pi/2 -> 0
+    #         shifted = shifted % (2 * jnp.pi)     # wrap to [0, 2pi)
+    #         x = image_width - shifted / (2 * jnp.pi) * image_width
+    #         return x.astype(int)
+
+    #     # image = jnp.zeros((image_height, image_width, 1))
+    #     image = jax.random.normal(subkey, (image_height, image_width, 1)) * self.range_disturbance
+    #     image = jnp.clip(image, 0.0, 1.0)
+
+    #     beacon_arr = jnp.array(self.beacons)
+
+    #     # relative vectors and polar info
+    #     range_vectors = beacon_arr[:, :2] - state[:2]
+    #     angles = jnp.arctan2(range_vectors[:, 1], range_vectors[:, 0])
+    #     distances = jnp.linalg.norm(range_vectors, axis=1)
+
+    #     # angular half-extent for each landmark (clamped)
+    #     theta_h = jnp.minimum(jnp.arctan2(lm_h / 2.0, distances), max_theta)
+    #     theta_w = jnp.minimum(jnp.arctan2(lm_w / 2.0, distances), max_theta)
+
+    #     # observed size in "object space"
+    #     # h_obs = 2.0 * jnp.tan(theta_h) * focal_length
+    #     # w_obs = 2.0 * jnp.tan(theta_w) * focal_length
+
+    #     # # scale into pixels
+    #     # h_image = 2.0 * focal_length * jnp.tan(max_theta)
+    #     # w_image = h_image  # same FOV assumption
+    #     # h_pixels = (h_obs / h_image) * image_height
+    #     # w_pixels = (w_obs / w_image) * image_width
+
+    #     # Full angular extent
+    #     phi_w = 2 * theta_w
+    #     phi_h = 2 * theta_h
+
+    #     # Convert angular extent to pixel extent
+    #     w_pixels = (phi_w / (2 * max_theta)) * image_width
+    #     h_pixels = (phi_h / (2 * max_theta)) * image_height
+
+    #     # Clamp: cannot exceed half the image
+    #     w_pixels = jnp.minimum(w_pixels, image_width // 2)
+    #     # h_pixels = jnp.minimum(h_pixels, image_height // 2)
+
+    #     # pixel centers
+    #     x_centers = angle2pixel_centered(angles, image_width)
+    #     y_center = image_height // 2
+
+    #     # painter’s algorithm: far → near
+    #     order = jnp.argsort(distances)[::-1]
+
+    #     for idx in order:
+    #         wc = int(jnp.round(w_pixels[idx]).item())
+    #         hc = int(jnp.round(h_pixels[idx]).item())
+    #         if wc <= 0 or hc <= 0:
+    #             continue
+
+    #         x0 = int(x_centers[idx] - wc // 2)
+    #         x1 = x0 + wc
+
+    #         # wrap handling in x
+    #         x_ranges = []
+    #         if wc >= image_width:
+    #             x_ranges = [(0, image_width)]
+    #         else:
+    #             x0_mod = x0 % image_width
+    #             x1_mod = x1 % image_width
+    #             if x0_mod < x1_mod:
+    #                 x_ranges = [(x0_mod, x1_mod)]
+    #             else:
+    #                 x_ranges = [(x0_mod, image_width), (0, x1_mod)]
+
+    #         # vertical extent
+    #         y0 = int(max(0, y_center - hc // 2))
+    #         y1 = int(min(image_height, y_center + (hc - hc // 2)))
+
+    #         for xa, xb in x_ranges:
+    #             if xa < xb and y0 < y1:
+    #                 fade = max(1.0 - 0.05 * distances[idx], 0.5)  # simple fade with distance
+    #                 # fade = 1.0
+    #                 image = image.at[y0:y1, xa:xb, 0].set(fade)
+
+    #     return image
 
     def observe_image(self,
                       state,
@@ -253,7 +361,39 @@ class BeaconDynamics(HJNNVDynamics):
         # painter’s algorithm: far → near
         order = jnp.argsort(distances)[::-1]
 
-        for idx in order:
+        # for idx in order:
+        #     wc = int(jnp.round(w_pixels[idx]).item())
+        #     hc = int(jnp.round(h_pixels[idx]).item())
+        #     if wc <= 0 or hc <= 0:
+        #         continue
+
+        #     x0 = int(x_centers[idx] - wc // 2)
+        #     x1 = x0 + wc
+
+        #     # wrap handling in x
+        #     x_ranges = []
+        #     if wc >= image_width:
+        #         x_ranges = [(0, image_width)]
+        #     else:
+        #         x0_mod = x0 % image_width
+        #         x1_mod = x1 % image_width
+        #         if x0_mod < x1_mod:
+        #             x_ranges = [(x0_mod, x1_mod)]
+        #         else:
+        #             x_ranges = [(x0_mod, image_width), (0, x1_mod)]
+
+        #     # vertical extent
+        #     y0 = int(max(0, y_center - hc // 2))
+        #     y1 = int(min(image_height, y_center + (hc - hc // 2)))
+
+        #     for xa, xb in x_ranges:
+        #         if xa < xb and y0 < y1:
+        #             fade = max(1.0 - 0.05 * distances[idx], 0.5)  # simple fade with distance
+        #             # fade = 1.0
+        #             image = image.at[y0:y1, xa:xb, 0].set(fade)
+        
+        # New version with additive blending and exponential falloff
+        for idx in order:  # order optional now
             wc = int(jnp.round(w_pixels[idx]).item())
             hc = int(jnp.round(h_pixels[idx]).item())
             if wc <= 0 or hc <= 0:
@@ -263,7 +403,6 @@ class BeaconDynamics(HJNNVDynamics):
             x1 = x0 + wc
 
             # wrap handling in x
-            x_ranges = []
             if wc >= image_width:
                 x_ranges = [(0, image_width)]
             else:
@@ -280,9 +419,10 @@ class BeaconDynamics(HJNNVDynamics):
 
             for xa, xb in x_ranges:
                 if xa < xb and y0 < y1:
-                    fade = max(1.0 - 0.05 * distances[idx], 0.5)  # simple fade with distance
-                    # fade = 1.0
-                    image = image.at[y0:y1, xa:xb, 0].set(fade)
+                    fade = jnp.exp(-0.05 * distances[idx])  # exponential falloff
+                    image = image.at[y0:y1, xa:xb, 0].add(fade)
+
+        image = jnp.clip(image, 0.0, 1.0)
 
         return image
     
@@ -552,7 +692,7 @@ class BeaconDynamics(HJNNVDynamics):
     def load_estimator(self, model_name="simple_estimator_3t"):
 
         checkpoint = torch.load(
-            "/home/nrober/code/hjnnv/hjnnv/src/learned_models/beacon/estimators/"
+            "/home/nick/code/hjnnv/src/learned_models/beacon/estimators/"
             + model_name
             + "/best_model.pt",
             map_location="cpu",
@@ -560,11 +700,15 @@ class BeaconDynamics(HJNNVDynamics):
 
         config = checkpoint.get("config_dict", None)
 
-        if self.obs_type == "distances" or True:
+        if self.obs_type == "distances":
             self.estimator = MLP(in_dim=12, out_dim=4, hidden=config["hidden"])
         elif self.obs_type == "images":
-            w, h = self.image_size
-            self.estimator = CNN(input_channels=3, out_dim=4, hidden1=config["hidden"], hidden2=config["hidden"], H=h, W=w)
+            self.image_size = config.get("image_size", (16, 128))
+            h, w = self.image_size
+            input_channels = config.get("history_length", 3)
+            stride = config.get("stride", 2)
+            print("Loading CNN with input shape:", (input_channels, h, w))
+            self.estimator = CNN(input_channels=input_channels, out_dim=4, hidden1=config["hidden"], hidden2=config["hidden"], H=h, W=w, stride=stride)
 
         # load just the weights
         self.estimator.load_state_dict(checkpoint["model_state_dict"])
@@ -588,14 +732,21 @@ class BeaconDynamics(HJNNVDynamics):
         state_hat = self.estimator(obs)
         return state_hat
 
-    def get_smoothed_state_estimate(self, obs, alpha=0.7):
+    def get_smoothed_state_distance_estimate(self, obs, alpha=0.7):
         prev_state_hat = obs[:4]
         prev_input = obs[jnp.array([4, 5])]
         obs = obs[6:]
 
-        # print("prev_state_hat:", prev_state_hat)
-        # print("prev_input:", prev_input)
+        return self.get_smoothed_state_estimate(prev_state_hat, prev_input, obs, alpha)
 
+    def get_smoothed_state_image_estimate(self, obs, alpha=0.7):
+        prev_state_hat = obs[0, :4, 0]
+        prev_input = obs[1, :2, 0]
+        obs = obs[:, :, 1:]
+
+        return self.get_smoothed_state_estimate(prev_state_hat, prev_input, obs, alpha)
+
+    def get_smoothed_state_estimate(self, prev_state_hat, prev_input, obs, alpha=0.7):
         state_hat_nn = self.get_state_estimate(obs)
         state_hat_dyn = self.step(
             prev_state_hat,

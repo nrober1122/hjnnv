@@ -113,6 +113,7 @@ class BeaconSimulator(Simulator):
             "state_sample_history": None,
             "state_des_history": None,
         }
+
         def rov_controller(state, desired_traj, time):
             spline_x, spline_y = desired_traj.generate_trajectory()
             ax_des = spline_x(time, 2)
@@ -131,7 +132,7 @@ class BeaconSimulator(Simulator):
             u = jnp.array([ux, uy])
             u_clipped = jnp.clip(u, -1.0, 1.0)
             return u_clipped
-        
+
         state_history = []
         state_hat_history = []
         state_bounds_history = []
@@ -171,7 +172,7 @@ class BeaconSimulator(Simulator):
             else:
                 obs = self.dynamics.get_observation(state, time=step)
                 state_hat = self.dynamics.get_state_estimate(obs).flatten()
-                
+
             state_bounds = self.hjnnv_filter.state_bounds_from_gt(
                 jnp.array(state_hat),
                 state

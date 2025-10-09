@@ -1,18 +1,9 @@
 import jax
-
-import simulators
 jax.config.update("jax_platform_name", "cpu")
 import jax.numpy as jnp
 from jax import lax
 import numpy as np
 import torch
-
-from learned_models.beacon.estimators import MLP, CNN
-from simulators.NASA_ULI_Xplane_Simulator.src.tiny_taxinet_train.model_tiny_taxinet import TinyTaxiNetDNN
-from simulators.NASA_ULI_Xplane_Simulator.src.train_DNN.model_taxinet import TaxiNetCNN
-from utils.mlp2jax import torch_mlp2jax
-
-
 
 import jax
 import jax.numpy as jnp
@@ -24,7 +15,10 @@ import torch.nn as nn
 
 def torch_to_jax_model(model):
     """Convert a PyTorch MLP, TinyTaxiNetDNN, CNN, or TaxiNetCNN into a pure JAX function."""
-    
+    from learned_models.beacon.estimators import MLP, CNN
+    from simulators.NASA_ULI_Xplane_Simulator.src.tiny_taxinet_train.model_tiny_taxinet import TinyTaxiNetDNN
+    from simulators.NASA_ULI_Xplane_Simulator.src.train_DNN.model_taxinet import TaxiNetCNN
+
     def convert_mlp(linear_layers):
         # Extract weights and biases from PyTorch layers as pure JAX arrays
         ws = [jnp.asarray(layer.weight.detach().cpu().numpy().T, dtype=jnp.float32) for layer in linear_layers]

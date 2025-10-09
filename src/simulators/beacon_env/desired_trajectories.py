@@ -65,7 +65,7 @@ class DesiredTrajectory:
     def _generate_spiral_trajectory(self):
         # geometry + speed params
         center = 5.0
-        radius = 5.0
+        radius = 4.9
         v_max = 1.0
         circle_start_angle = np.pi/6  # change as you like
 
