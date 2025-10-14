@@ -106,8 +106,83 @@ def torch_to_jax_model(model):
                     x = jnp.maximum(x, 0.0)
             return x[0] if added_batch else x
 
-        jax_model = jax.jit(jax_model)
-        dummy_in = jnp.zeros((3, 224, 224), dtype=jnp.float32)
+        # Code to determine a suitable dummy input size for JIT warmup
+        fc_in = int(fc_layers[0].in_features)           # e.g. 512
+        out_ch_last = int(conv_layers[-1].out_channels) # e.g. 32
+
+        if out_ch_last == 0:
+            raise ValueError("Last conv has zero out channels?!")
+
+        target_area = fc_in // out_ch_last
+        if target_area * out_ch_last != fc_in:
+            # If fc_in is not divisible by out_ch_last, it's an inconsistent model definition
+            raise ValueError(f"fc_in ({fc_in}) not divisible by last conv out channels ({out_ch_last}).")
+
+        # extract conv specs (k, s, p, d) for height and width
+        conv_specs = []
+        for conv in conv_layers:
+            # kernel_size, stride, padding, dilation can be int or tuple
+            kH, kW = conv.kernel_size if isinstance(conv.kernel_size, tuple) else (conv.kernel_size, conv.kernel_size)
+            sH, sW = conv.stride if isinstance(conv.stride, tuple) else (conv.stride, conv.stride)
+            dH, dW = conv.dilation if isinstance(conv.dilation, tuple) else (conv.dilation, conv.dilation)
+            if isinstance(conv.padding, tuple):
+                pH, pW = conv.padding
+            else:
+                pH = pW = int(conv.padding)
+            conv_specs.append((int(kH), int(sH), int(pH), int(dH), int(kW), int(sW), int(pW), int(dW)))
+
+        def conv_out_size(in_size, k, s, p, d=1):
+            # PyTorch conv output formula (integer math)
+            return (in_size + 2 * p - d * (k - 1) - 1) // s + 1
+
+        # search for an H (square) that yields exactly the target_area after the conv sequence
+        found_H = None
+        max_try = 4096
+        min_try = 8
+        for H_try in range(min_try, max_try + 1):
+            h, w = H_try, H_try
+            ok = True
+            for (kH, sH, pH, dH, kW, sW, pW, dW) in conv_specs:
+                h = conv_out_size(h, kH, sH, pH, dH)
+                w = conv_out_size(w, kW, sW, pW, dW)
+                if h <= 0 or w <= 0:
+                    ok = False
+                    break
+            if not ok:
+                continue
+            final_area = int(h * w)
+            if final_area == target_area:
+                found_H = H_try
+                final_h, final_w = h, w
+                break
+
+        if found_H is None:
+            # nothing exact found — fall back to using the model's nominal H/W if available,
+            # or pick a safe large size so we at least warm up JIT (but will warn).
+            # Try to get H/W from first conv's attribute if present (not always defined)
+            first_conv = conv_layers[0]
+            try:
+                # Many models store expected input H/W in attributes; try common ones:
+                H_from_model = getattr(first_conv, "H", None) or getattr(first_conv, "input_H", None)
+            except Exception:
+                H_from_model = None
+
+            warn_msg = ("Couldn't find a square input size that produces exact flatten area. "
+                        "Falling back to using H=64 for JIT warmup; runtime shape mismatch may still occur.")
+            print("[torch_to_jax_model] WARNING:", warn_msg)
+            found_H = 64 if H_from_model is None else int(H_from_model)
+            # compute final_h/final_w for diagnostic (best-effort)
+            h, w = found_H, found_H
+            for (kH, sH, pH, dH, kW, sW, pW, dW) in conv_specs:
+                h = conv_out_size(h, kH, sH, pH, dH)
+                w = conv_out_size(w, kW, sW, pW, dW)
+            final_h, final_w = h, w
+
+        # create dummy as PyTorch single sample layout (C,H,W) — convert_cnn expects that
+        in_channels = int(conv_layers[0].in_channels)
+        dummy_in = jnp.zeros((in_channels, found_H, found_H), dtype=jnp.float32)
+
+        # warm up jit
         _ = jax_model(dummy_in)
         return jax_model
 
