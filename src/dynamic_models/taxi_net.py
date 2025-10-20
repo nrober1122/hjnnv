@@ -39,26 +39,58 @@ class TaxiNetDynamics(hj.ControlAndDisturbanceAffineDynamics):
         super().__init__(control_mode, disturbance_mode, control_space, disturbance_space)
 
     def open_loop_dynamics(self, state, time):
-        _, theta = state
-        return jnp.array([self.v * jnp.sin(theta), 0])
+        # Handle batch or single input
+        theta = state[..., 1]
+        dxdt = jnp.stack([self.v * jnp.sin(theta),
+                          jnp.zeros_like(theta)], axis=-1)
+        return dxdt
 
     def control_jacobian(self, state, time):
-        return jnp.array([
-            [0.],
-            [self.v/self.L],
-        ])
+        # Shape: (..., 2, 1)
+        return jnp.broadcast_to(
+            jnp.array([[0.], [self.v/self.L]]),
+            state.shape[:-1] + (2, 1)
+        )
 
     def disturbance_jacobian(self, state, time):
-        return jnp.array([
-            [1., 0.],
-            [0., 1.]
-        ])
+        # Shape: (..., 2, 2)
+        return jnp.broadcast_to(
+            jnp.array([[1., 0.], [0., 1.]]),
+            state.shape[:-1] + (2, 2)
+        )
 
     def get_observation(self, state, time):
-        """Implements the observation function `h(x, t)`."""
         return state
 
     def step(self, state, control, disturbance, time=0.):
+        # If batched, vectorize automatically
+        if state.ndim > 1:
+            return jax.vmap(lambda s, u, d: self.step(s, u, d, time))(state, control, disturbance)
+        
         dxdt = self(state, control, disturbance, time)
-        next_state = state + dxdt * self.dt
-        return next_state
+        return state + dxdt * self.dt
+
+    # def open_loop_dynamics(self, state, time):
+    #     _, theta = state
+    #     return jnp.array([self.v * jnp.sin(theta), 0])
+
+    # def control_jacobian(self, state, time):
+    #     return jnp.array([
+    #         [0.],
+    #         [self.v/self.L],
+    #     ])
+
+    # def disturbance_jacobian(self, state, time):
+    #     return jnp.array([
+    #         [1., 0.],
+    #         [0., 1.]
+    #     ])
+
+    # def get_observation(self, state, time):
+    #     """Implements the observation function `h(x, t)`."""
+    #     return state
+
+    # def step(self, state, control, disturbance, time=0.):
+    #     dxdt = self(state, control, disturbance, time)
+    #     next_state = state + dxdt * self.dt
+    #     return next_state
