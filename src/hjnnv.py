@@ -17,7 +17,8 @@ class hjnnvUncertaintyAwareFilter:
                  grid,
                  initial_values,
                  num_controls=10,
-                 num_disturbances=5
+                 num_disturbances=5,
+                 time_horizon=10.0,
                  ):
         """
         Initializes the class with the provided system dynamics, grid, and discretization parameters.
@@ -48,7 +49,7 @@ class hjnnvUncertaintyAwareFilter:
         )
 
         final_time = 0.
-        target_time = -10.0
+        target_time = -time_horizon
         target_values = hj.step(
             solver_settings,
             dynamics,
@@ -114,6 +115,44 @@ class hjnnvUncertaintyAwareFilter:
             (inp_bound,) = bound_propagation.unjit_inputs(inp_bound)
 
             bounds = jax_verify.backward_crown_bound_propagation(self.pred_model, inp_bound)
+            lower = bounds.lower
+            upper = bounds.upper
+
+            return jnp.array(lower), jnp.array(upper)
+
+        out_lb, out_ub = bound_prop_fun(jittable_input_bounds)
+
+        return hj.sets.Box(out_lb.flatten(), out_ub.flatten())
+
+    @functools.partial(jax.jit, static_argnames=("self",))
+    def nnv_dynamics_state_bounds(self, state, control, state_eps):
+        disturbance = jnp.zeros_like(state)
+        eps = jnp.concatenate([state_eps, jnp.zeros_like(control), self.dynamics.disturbance_space.hi])
+        inp = jnp.concatenate([state, control, disturbance])
+
+        interval_bounds = jax_verify.IntervalBound(
+            jnp.array(inp - eps),
+            jnp.array(inp + eps)
+        )
+        jittable_input_bounds = interval_bounds.to_jittable()
+
+        def dynamics_bound_prop_fun(inp):
+            state_propagation = inp[0:state.shape[0]]
+            control_propagation = inp[state.shape[0]:state.shape[0]+control.shape[0]]
+            disturbance_propagation = inp[state.shape[0]+control.shape[0]:]
+
+            next_state = self.dynamics.step(
+                state_propagation,
+                control_propagation,
+                disturbance_propagation,
+                time=0.
+            )
+            return next_state
+
+        def bound_prop_fun(inp_bound):
+            (inp_bound,) = bound_propagation.unjit_inputs(inp_bound)
+
+            bounds = jax_verify.backward_crown_bound_propagation(dynamics_bound_prop_fun, inp_bound)
             lower = bounds.lower
             upper = bounds.upper
 

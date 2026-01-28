@@ -63,9 +63,9 @@ class HJNNVDynamics(hj.ControlAndDisturbanceAffineDynamics):
                 state_hat = self.get_state_estimate(obs)
             else:
                 state_hat = state
-            # import ipdb; ipdb.set_trace()
             control = control_policy(state_hat)
             disturbance = self.get_random_disturbance()
+            print( "Time step:", t, "State:", state, "Control:", control, "Disturbance:", disturbance)
             state = self.step(state, control, disturbance, time=t+1)
             observation = self.get_observation(state, time=t+1)
             trajectory.append((state, observation))
