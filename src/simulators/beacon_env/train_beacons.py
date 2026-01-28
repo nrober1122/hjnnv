@@ -76,7 +76,7 @@ def nnv_loss(x: torch.Tensor,
 
         # Penalize bound width per dimension (mean width)
         widths = upper - lower  # (batch, dim)
-        cert_loss = torch.mean(torch.mean(widths, dim=1))  
+        cert_loss = torch.mean(torch.mean(widths, dim=1))
 
         # Alternatively: log-volume
         # cert_loss = torch.mean(torch.sum(torch.log(widths + 1e-12), dim=1))
@@ -115,7 +115,7 @@ class Config:
 
     # beacon positions (non-collinear for observability)
     # beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (4.0, 4.0))
-    beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (8.0, 0.0), (0.0, 8.0), (10.0, 10.0))
+    beacons: Tuple[Tuple[float, float], ...] = ((0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (5.0, 5.0))
 
     # training
     batch_size: int = 256
@@ -127,7 +127,7 @@ class Config:
     epsilon: float = 0.1
 
     results_dir = "/home/nick/code/hjnnv/src/learned_models/" \
-        "beacon/estimators/image_estimator_test/scratch"
+        "beacon/estimators/diagonal_landmark_estimator/scratch"
 
 
 cfg = Config()

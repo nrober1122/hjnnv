@@ -115,7 +115,8 @@ class DesiredTrajectory:
                 ds = np.hypot(dx, dy)
                 s_prev = s_total
                 s_total += ds
-                t_new = time_from_s(s_total)
+                # t_new = time_from_s(s_total)
+                t_new = s_total / v_max  # simpler: constant speed
                 waypoints_x.append(x)
                 waypoints_y.append(y)
                 time_stamps.append(t_new)
